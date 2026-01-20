@@ -11,6 +11,10 @@ TFM solves this by:
 2. Counting failures per transition
 3. Generating a matrix that shows "hotspots" — the transitions that fail most
 
+## Where to set it up
+
+This framework is created as an Agent Skill (e.g. Claude Skill).   To use simply follow the instruction for using agents appropriate to the specific agent
+
 ## Why use it?
 
 **Before TFM:**
