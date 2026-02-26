@@ -1,0 +1,16 @@
+{
+  "START \u2192 SearchMemory": {
+    "total": 30,
+    "failures": 10,
+    "successes": 20,
+    "failure_rate": 33.33333333333333,
+    "avg_duration_ms": 0.0005820000296807848
+  },
+  "SearchMemory \u2192 RetrieveInsights": {
+    "total": 20,
+    "failures": 3,
+    "successes": 17,
+    "failure_rate": 15.0,
+    "avg_duration_ms": 0.0008458498996333219
+  }
+}

@@ -11,6 +11,14 @@ TFM solves this by:
 2. Counting failures per transition
 3. Generating a matrix that shows "hotspots" — the transitions that fail most
 
+**✨ Enhanced Features:**
+- Success rate tracking (17/100 failures = 17%, not just "17 failures")
+- Baseline comparison & regression detection
+- Error pattern clustering
+- Performance bottleneck identification
+- **Sankey diagram visualization** - Visual flow diagrams in markdown
+- See [ENHANCEMENTS.md](ENHANCEMENTS.md) for details
+
 ## Why use it?
 
 **Before TFM:**
@@ -20,8 +28,30 @@ TFM solves this by:
 
 **After TFM:**
 ```
-"GenSQL → ExecSQL fails 12 times (80% of failures). The SQL generation works
-but execution fails due to permissions. Fix permissions first."
+"GenSQL → ExecSQL fails 12/100 times (12% rate, up from 8% baseline).
+8 failures due to 'Permission denied' pattern. Fix permissions first."
+```
+
+**Visual Flow (Sankey Diagram):**
+```mermaid
+---
+config:
+  sankey:
+    showValues: true
+---
+sankey-beta
+
+START,Parse,100
+Parse,Classify,95
+Parse,FAIL,5
+Classify,Execute,80
+Classify,FAIL,15
+Execute,Format,75
+Execute,FAIL,5
+Format,END,75
+```
+*Shows: 100 start → 75 succeed → 25 fail at various stages*
+8 failures due to 'Permission denied' pattern. Fix permissions first."
 ```
 
 ## Inspiration

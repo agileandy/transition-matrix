@@ -50,6 +50,11 @@ class TransitionTracker:
     Tracks state transitions and builds failure matrix.
 
     Thread-safe for concurrent workflows using workflow_id isolation.
+    
+    Enhanced with:
+    - Success rate tracking (not just failures)
+    - Performance metrics (duration tracking)
+    - Baseline comparison support
     """
 
     _instance: Optional["TransitionTracker"] = None
@@ -58,6 +63,10 @@ class TransitionTracker:
         self.events: list[TransitionEvent] = []
         self.current_state: dict[str, str] = {}  # workflow_id -> state
         self.matrix: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        # Enhanced: Track success rates and performance
+        self.transition_stats: dict[str, dict] = defaultdict(
+            lambda: {"total": 0, "failures": 0, "durations": []}
+        )
 
     @classmethod
     def get_instance(cls) -> "TransitionTracker":
@@ -103,6 +112,13 @@ class TransitionTracker:
 
         if not success:
             self.matrix[from_state][to_state] += 1
+
+        # Enhanced: Track statistics for success rates and performance
+        key = f"{from_state} → {to_state}"
+        self.transition_stats[key]["total"] += 1
+        if not success:
+            self.transition_stats[key]["failures"] += 1
+        self.transition_stats[key]["durations"].append(duration_ms)
 
         # Log for external consumption (matches expected log format)
         status = "SUCCESS" if success else "FAILURE"
@@ -159,6 +175,76 @@ class TransitionTracker:
         self.events.clear()
         self.current_state.clear()
         self.matrix.clear()
+        self.transition_stats.clear()
+
+    def get_transition_rates(self) -> dict:
+        """
+        Get success/failure rates for each transition.
+        
+        Returns dict with transition stats including:
+        - total: Total attempts
+        - failures: Number of failures
+        - successes: Number of successes
+        - failure_rate: Percentage (0-100)
+        - avg_duration_ms: Average duration
+        """
+        rates = {}
+        for transition, stats in self.transition_stats.items():
+            total = stats["total"]
+            failures = stats["failures"]
+            durations = stats["durations"]
+            
+            rates[transition] = {
+                "total": total,
+                "failures": failures,
+                "successes": total - failures,
+                "failure_rate": (failures / total * 100) if total > 0 else 0,
+                "avg_duration_ms": sum(durations) / len(durations) if durations else 0,
+            }
+        return rates
+
+    def get_slow_transitions(self, threshold_ms: float = 100) -> list[tuple[str, float, int]]:
+        """
+        Find transitions exceeding duration threshold.
+        
+        Args:
+            threshold_ms: Duration threshold in milliseconds
+            
+        Returns:
+            List of (transition, avg_duration_ms, sample_count) sorted by duration
+        """
+        slow = []
+        for transition, stats in self.transition_stats.items():
+            durations = stats["durations"]
+            if durations:
+                avg_duration = sum(durations) / len(durations)
+                if avg_duration > threshold_ms:
+                    slow.append((transition, avg_duration, stats["total"]))
+        return sorted(slow, key=lambda x: -x[1])
+
+    def render_sankey(self, include_failures: bool = True, min_transitions: int = 1) -> str:
+        """
+        Generate Mermaid Sankey diagram visualization.
+        
+        Sankey diagrams show flow between states with link width proportional
+        to transition volume. Useful for visualizing workflow paths and failure points.
+        
+        Args:
+            include_failures: If True, failed transitions flow to "FAIL" node
+            min_transitions: Minimum transitions to include (filters noise)
+            
+        Returns:
+            Mermaid markdown string ready to render in GitHub/markdown viewers
+            
+        Example:
+            ```python
+            tracker = TransitionTracker.get_instance()
+            # ... run workflows ...
+            print(tracker.render_sankey())
+            ```
+        """
+        from tfm_visualizations import render_sankey
+        return render_sankey(self, include_failures, min_transitions)
 
     def render_markdown(self) -> str:
         """Render the current matrix as Markdown."""
@@ -361,6 +447,62 @@ def track_transition(from_state: str, to_state: str):
     return decorator
 
 
+# Enhanced utilities for improved analysis
+def compare_to_baseline(current_rates: dict, baseline_rates: dict, threshold: float = 0.2) -> list[dict]:
+    """
+    Compare current transition rates to baseline, flag regressions.
+    
+    Args:
+        current_rates: Current run rates from get_transition_rates()
+        baseline_rates: Baseline rates from previous run
+        threshold: Regression threshold (0.2 = 20% worse)
+        
+    Returns:
+        List of regressions with transition, baseline_rate, current_rate, delta
+    """
+    regressions = []
+    
+    for transition, current in current_rates.items():
+        if transition in baseline_rates:
+            baseline_rate = baseline_rates[transition]["failure_rate"]
+            current_rate = current["failure_rate"]
+            
+            # Flag if current is worse by threshold percentage
+            if current_rate > baseline_rate * (1 + threshold):
+                regressions.append({
+                    "transition": transition,
+                    "baseline_rate": baseline_rate,
+                    "current_rate": current_rate,
+                    "delta": current_rate - baseline_rate,
+                    "percent_increase": ((current_rate - baseline_rate) / baseline_rate * 100) if baseline_rate > 0 else 0,
+                })
+    
+    return sorted(regressions, key=lambda x: -x["delta"])
+
+
+def cluster_errors(events: list[TransitionEvent]) -> dict[str, list[TransitionEvent]]:
+    """
+    Group similar errors to identify patterns.
+    
+    Args:
+        events: List of TransitionEvent objects
+        
+    Returns:
+        Dict mapping error message to list of events with that error
+    """
+    from collections import defaultdict
+    
+    error_patterns = defaultdict(list)
+    
+    for event in events:
+        if not event.success and event.error_message:
+            # Normalize error message (basic clustering)
+            error_key = event.error_message.strip()
+            error_patterns[error_key].append(event)
+    
+    return dict(error_patterns)
+
+
 # Example usage and self-test
 if __name__ == "__main__":
     import random
@@ -411,3 +553,38 @@ if __name__ == "__main__":
     print("\n=== Hotspots ===\n")
     for from_s, to_s, count in tracker.get_hotspots():
         print(f"  {from_s} -> {to_s}: {count} failures")
+
+    # Enhanced: Show success rates
+    print("\n=== Success/Failure Rates ===\n")
+    rates = tracker.get_transition_rates()
+    for transition, stats in sorted(rates.items(), key=lambda x: -x[1]["failure_rate"]):
+        rate = stats["failure_rate"]
+        status = "🔥🔥🔥" if rate > 50 else "🔥🔥" if rate > 20 else "🔥" if rate > 5 else "✓"
+        print(
+            f"{status} {transition}: {stats['failures']}/{stats['total']} "
+            f"({rate:.1f}%) | Avg: {stats['avg_duration_ms']:.1f}ms"
+        )
+
+    # Enhanced: Show slow transitions
+    print("\n=== Performance Bottlenecks ===\n")
+    slow = tracker.get_slow_transitions(threshold_ms=50)
+    if slow:
+        for transition, avg_ms, count in slow:
+            print(f"  ⏱️  {transition}: {avg_ms:.1f}ms avg ({count} samples)")
+    else:
+        print("  ✓ No slow transitions detected")
+
+    # Enhanced: Show error patterns
+    print("\n=== Error Patterns ===\n")
+    error_patterns = cluster_errors(tracker.events)
+    for error_msg, events in sorted(error_patterns.items(), key=lambda x: -len(x[1])):
+        print(f"  '{error_msg}': {len(events)} occurrences")
+        transitions = set(f"{e.from_state} → {e.to_state}" for e in events)
+        print(f"    Affects: {', '.join(list(transitions)[:3])}")
+
+    # Enhanced: Show Sankey diagram
+    print("\n=== Sankey Diagram ===\n")
+    print(tracker.render_sankey())
+    print("\n💡 Copy the above Mermaid diagram to GitHub/markdown to visualize flow")
+
+
