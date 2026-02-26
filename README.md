@@ -19,6 +19,10 @@ TFM solves this by:
 - **Sankey diagram visualization** - Visual flow diagrams in markdown
 - See [ENHANCEMENTS.md](ENHANCEMENTS.md) for details
 
+## Where to set it up
+
+This framework is created as an Agent Skill (e.g. Claude Skill). To use simply follow the instruction for using agents appropriate to the specific agent
+
 ## Why use it?
 
 **Before TFM:**
